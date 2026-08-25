@@ -45,11 +45,11 @@ def cli(
 @app.command("list")
 def list_datasets() -> None:
     """List available built-in dataset adapters."""
-    typer.echo("ID           KIND   VERSION  DESCRIPTION")
+    typer.echo("ID                 KIND   VERSION       DESCRIPTION")
     for adapter in available_adapters():
         metadata = adapter.metadata
         typer.echo(
-            f"{metadata.identifier:<12} {metadata.kind:<6} {metadata.version:<8} "
+            f"{metadata.identifier:<18} {metadata.kind:<6} {metadata.version:<13} "
             f"{metadata.description}"
         )
 
@@ -90,7 +90,7 @@ def download(
         bool,
         typer.Option(
             "--keep-archives",
-            help="Retain verified source ZIP archives inside the dataset package.",
+            help="Retain verified source archives inside the dataset package.",
         ),
     ] = False,
 ) -> None:

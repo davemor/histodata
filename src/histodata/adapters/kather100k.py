@@ -1,7 +1,8 @@
-"""Adapter for the color-normalized Kather colorectal patch datasets."""
+"""Adapters for the Kather colorectal patch datasets."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pyarrow as pa
@@ -44,6 +45,8 @@ INDEX_SCHEMA = pa.schema(
 
 class Kather100KAdapter:
     """Build and validate a standardized Kather100K package."""
+
+    color_normalized = True
 
     metadata = DatasetMetadata(
         identifier="kather100k",
@@ -130,7 +133,7 @@ class Kather100KAdapter:
                         "mpp_x": 0.5,
                         "mpp_y": 0.5,
                         "stain": "H&E",
-                        "color_normalized": True,
+                        "color_normalized": self.color_normalized,
                         "byte_size": image_path.stat().st_size,
                     }
                     for name, value in values.items():
@@ -147,7 +150,7 @@ class Kather100KAdapter:
                 "mpp_x": 0.5,
                 "mpp_y": 0.5,
                 "stain": "H&E",
-                "color_normalized": True,
+                "color_normalized": self.color_normalized,
             },
             "labels": [{"name": label, "index": index} for label, index in LABELS.items()],
         }
@@ -187,6 +190,10 @@ class Kather100KAdapter:
                 )
         return _deduplicate(errors)
 
+    def deep_validate(self, package_dir: Path, table: pa.Table) -> list[str]:
+        """Kather images are verified by the format-level image validator."""
+        return []
+
     def _validate_cohort_layout(self, cohort_root: Path, source: DatasetSource) -> None:
         if not cohort_root.is_dir():
             raise ValueError(f"Expected cohort directory not found: {cohort_root}")
@@ -212,6 +219,31 @@ class Kather100KAdapter:
                 f"Expected {source.expected_count} TIFF files in {source.cohort}, "
                 f"found {image_count}"
             )
+
+
+class Kather100KNonNormAdapter(Kather100KAdapter):
+    """Build and validate the non-color-normalized Kather100K training package."""
+
+    color_normalized = False
+    metadata = replace(
+        Kather100KAdapter.metadata,
+        identifier="kather100k-nonorm",
+        description=(
+            "Non-color-normalized 224x224 H&E colorectal tissue patches from "
+            "the NCT-CRC-HE-100K-NONORM training cohort."
+        ),
+    )
+    sources = (
+        DatasetSource(
+            filename="NCT-CRC-HE-100K-NONORM.zip",
+            url=("https://zenodo.org/api/records/1214456/files/NCT-CRC-HE-100K-NONORM.zip/content"),
+            size=11_726_652_899,
+            checksum="md5:035777cf327776a71a05c95da6d6325f",
+            split="train",
+            cohort="NCT-CRC-HE-100K-NONORM",
+            expected_count=100_000,
+        ),
+    )
 
 
 def _deduplicate(values: list[str]) -> list[str]:

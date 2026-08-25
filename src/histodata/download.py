@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
+import io
 import json
 import os
 import shutil
 import stat
+import tarfile
 import time
 import zipfile
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 import httpx
+from huggingface_hub import hf_hub_download
+from huggingface_hub.errors import HfHubHTTPError, LocalEntryNotFoundError
 
+from histodata.config import ConfigurationError, resolve_hf_token
 from histodata.models import DatasetAdapter, DatasetSource
 from histodata.package import MANIFEST_FILENAME, write_package
 from histodata.validation import validate_package
@@ -92,6 +98,27 @@ def _install_source(
     retries: int,
     retry_delay: float,
 ) -> None:
+    if source.kind in {"gzip", "file"}:
+        _install_file_source(
+            source,
+            package_dir,
+            keep_archives=keep_archives,
+            transport=transport,
+            progress=progress,
+            retries=retries,
+            retry_delay=retry_delay,
+        )
+        return
+    if source.kind == "huggingface-split-tar":
+        _install_huggingface_source(
+            source,
+            package_dir,
+            keep_archives=keep_archives,
+        )
+        return
+    if source.kind != "zip":
+        raise InstallationError(f"Unsupported source kind for {source.filename}: {source.kind}")
+
     final_cohort = package_dir / "data" / source.cohort
     cohort_complete = _cohort_looks_complete(final_cohort, source, adapter.labels)
 
@@ -128,6 +155,255 @@ def _install_source(
     else:
         internal_archive.unlink(missing_ok=True)
         retained_archive.unlink(missing_ok=True)
+
+
+def _install_file_source(
+    source: DatasetSource,
+    package_dir: Path,
+    *,
+    keep_archives: bool,
+    transport: httpx.BaseTransport | None,
+    progress: ProgressCallback | None,
+    retries: int,
+    retry_delay: float,
+) -> None:
+    if source.target is None or not _safe_relative_path(source.target):
+        raise InstallationError(f"Source has no safe target path: {source.filename}")
+    target = package_dir / "data" / source.target
+    downloads_dir = package_dir / ".histodata" / "downloads"
+    retained_dir = package_dir / "archives"
+    retained_archive = retained_dir / source.filename
+    internal_archive = downloads_dir / source.filename
+
+    archive: Path | None = None
+    if retained_archive.is_file() and _verify_file(retained_archive, source):
+        archive = retained_archive
+    elif not target.is_file() or keep_archives:
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        archive = _obtain_archive(
+            source,
+            internal_archive,
+            transport=transport,
+            progress=progress,
+            retries=retries,
+            retry_delay=retry_delay,
+        )
+
+    if not target.is_file():
+        if archive is None:
+            raise InstallationError(f"No verified source available for {source.target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.name}.partial")
+        temporary.unlink(missing_ok=True)
+        if source.kind == "gzip":
+            try:
+                with gzip.open(archive, "rb") as source_file, temporary.open("wb") as target_file:
+                    shutil.copyfileobj(source_file, target_file, length=CHUNK_SIZE)
+            except (gzip.BadGzipFile, EOFError, OSError) as exc:
+                temporary.unlink(missing_ok=True)
+                raise InstallationError(f"Cannot decompress {source.filename}: {exc}") from exc
+        else:
+            shutil.copyfile(archive, temporary)
+        os.replace(temporary, target)
+
+    if keep_archives:
+        if archive is None:
+            raise InstallationError(f"No verified source available to retain: {source.filename}")
+        retained_dir.mkdir(parents=True, exist_ok=True)
+        if archive != retained_archive:
+            os.replace(archive, retained_archive)
+    else:
+        internal_archive.unlink(missing_ok=True)
+        retained_archive.unlink(missing_ok=True)
+
+
+def _install_huggingface_source(
+    source: DatasetSource, package_dir: Path, *, keep_archives: bool
+) -> None:
+    if (
+        source.repository is None
+        or source.revision is None
+        or source.part_count is None
+        or source.target is None
+        or not _safe_relative_path(source.target)
+    ):
+        raise InstallationError(f"Incomplete Hugging Face source declaration: {source.filename}")
+    final_root = package_dir / "data" / source.target
+    complete = (final_root / "metadata.json").is_file() and (final_root / "images").is_dir()
+    downloads_dir = package_dir / ".histodata" / "downloads" / source.target
+    retained_dir = package_dir / "archives"
+    prefix = source.filename.removesuffix("*")
+    part_names = [f"{prefix}{index:02d}" for index in range(source.part_count)]
+
+    if complete and not keep_archives:
+        return
+    try:
+        token = resolve_hf_token()
+    except ConfigurationError as exc:
+        raise InstallationError(str(exc)) from exc
+
+    part_paths: list[Path] = []
+    download_target = retained_dir if keep_archives else downloads_dir
+    download_target.mkdir(parents=True, exist_ok=True)
+    for part_name in part_names:
+        try:
+            downloaded = hf_hub_download(
+                repo_id=source.repository,
+                filename=part_name,
+                repo_type="dataset",
+                revision=source.revision,
+                token=token,
+                local_dir=download_target,
+            )
+        except (HfHubHTTPError, LocalEntryNotFoundError, OSError) as exc:
+            raise InstallationError(
+                f"Cannot download gated dataset {source.repository}. Confirm that HF_TOKEN is "
+                "valid and that its account has accepted the dataset access conditions."
+            ) from exc
+        part_paths.append(Path(downloaded))
+
+    actual_size = sum(path.stat().st_size for path in part_paths)
+    if actual_size != source.size:
+        raise InstallationError(
+            f"Expected {source.size} bytes across {source.filename}, found {actual_size}"
+        )
+    if not complete:
+        _extract_split_tar(part_paths, source, package_dir)
+    if not keep_archives:
+        for path in part_paths:
+            path.unlink(missing_ok=True)
+        shutil.rmtree(downloads_dir, ignore_errors=True)
+
+
+class _MultipartReader(io.RawIOBase):
+    """Read a sequence of files as one continuous, non-seekable stream."""
+
+    def __init__(self, parts: list[Path]) -> None:
+        super().__init__()
+        self._parts = iter(parts)
+        self._current = None
+
+    def read(self, size: int = -1) -> bytes:
+        chunks: list[bytes] = []
+        remaining = size
+        while size < 0 or remaining > 0:
+            if self._current is None:
+                try:
+                    self._current = next(self._parts).open("rb")
+                except StopIteration:
+                    break
+            chunk = self._current.read(-1 if size < 0 else remaining)
+            if chunk:
+                chunks.append(chunk)
+                if size >= 0:
+                    remaining -= len(chunk)
+            else:
+                self._current.close()
+                self._current = None
+        return b"".join(chunks)
+
+    def close(self) -> None:
+        if self._current is not None:
+            self._current.close()
+            self._current = None
+        super().close()
+
+    def readable(self) -> bool:
+        return True
+
+
+def _extract_split_tar(parts: list[Path], source: DatasetSource, package_dir: Path) -> None:
+    required = source.size + DISK_HEADROOM_BYTES
+    available = shutil.disk_usage(package_dir).free
+    if available < required:
+        raise InstallationError(
+            f"Insufficient disk space to extract {source.filename}: need at least "
+            f"{required} free bytes, found {available}"
+        )
+    staging_root = package_dir / ".histodata" / "extracted" / f"{source.target}.partial"
+    if staging_root.exists():
+        shutil.rmtree(staging_root)
+    staging_root.mkdir(parents=True)
+    stream = _MultipartReader(parts)
+    try:
+        with tarfile.open(fileobj=stream, mode="r|") as archive:
+            for member in archive:
+                _validate_tar_member(member)
+                relative = PurePosixPath(member.name.replace("\\", "/"))
+                destination = staging_root.joinpath(*relative.parts)
+                if member.isdir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                    continue
+                if not member.isfile():
+                    raise InstallationError(f"Unsupported TAR member rejected: {member.name}")
+                source_file = archive.extractfile(member)
+                if source_file is None:
+                    raise InstallationError(f"Cannot read TAR member: {member.name}")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with source_file, destination.open("wb") as target_file:
+                    shutil.copyfileobj(source_file, target_file, length=CHUNK_SIZE)
+    except (tarfile.TarError, OSError) as exc:
+        raise InstallationError(f"Cannot extract {source.filename}: {exc}") from exc
+    finally:
+        stream.close()
+
+    extracted_root = _find_spider_root(staging_root)
+    final_root = package_dir / "data" / str(source.target)
+    final_root.parent.mkdir(parents=True, exist_ok=True)
+    if final_root.exists():
+        shutil.rmtree(final_root)
+    if extracted_root == staging_root:
+        temporary = final_root.with_name(f".{final_root.name}.partial")
+        temporary.mkdir(parents=True, exist_ok=True)
+        for child in list(staging_root.iterdir()):
+            os.replace(child, temporary / child.name)
+        os.replace(temporary, final_root)
+        shutil.rmtree(staging_root)
+    else:
+        os.replace(extracted_root, final_root)
+        shutil.rmtree(staging_root)
+
+
+def _find_spider_root(staging_root: Path) -> Path:
+    if (staging_root / "metadata.json").is_file() and (staging_root / "images").is_dir():
+        return staging_root
+    directories = [path for path in staging_root.iterdir() if path.is_dir()]
+    files = [path for path in staging_root.iterdir() if path.is_file()]
+    if (
+        len(directories) == 1
+        and not files
+        and (directories[0] / "metadata.json").is_file()
+        and (directories[0] / "images").is_dir()
+    ):
+        return directories[0]
+    raise InstallationError(
+        "Unexpected SPIDER archive layout: expected images/ and metadata.json at its root"
+    )
+
+
+def _validate_tar_member(member: tarfile.TarInfo) -> None:
+    raw_name = member.name.replace("\\", "/")
+    path = PurePosixPath(raw_name)
+    if (
+        not raw_name
+        or path.is_absolute()
+        or ".." in path.parts
+        or (path.parts and ":" in path.parts[0])
+        or member.issym()
+        or member.islnk()
+        or member.isdev()
+    ):
+        raise InstallationError(f"Unsafe TAR member rejected: {member.name}")
+
+
+def _safe_relative_path(value: str) -> bool:
+    path = PurePosixPath(value.replace("\\", "/"))
+    return (
+        bool(value)
+        and not path.is_absolute()
+        and ".." not in path.parts
+        and not (path.parts and ":" in path.parts[0])
+    )
 
 
 def _obtain_archive(

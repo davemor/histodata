@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import stat
 import zipfile
@@ -12,6 +13,7 @@ from conftest import MiniDataset
 
 from histodata.download import (
     InstallationError,
+    _install_file_source,
     _obtain_archive,
     _validate_zip_member,
     install_dataset,
@@ -181,3 +183,30 @@ def test_rejects_zip_symlink() -> None:
     member.external_attr = (stat.S_IFLNK | 0o777) << 16
     with pytest.raises(InstallationError, match="Unsafe ZIP member"):
         _validate_zip_member(member)
+
+
+def test_installs_and_decompresses_gzip_source(tmp_path: Path) -> None:
+    extracted = b"native-container-content"
+    content = gzip.compress(extracted)
+    source = DatasetSource(
+        filename="container.h5.gz",
+        url="https://example.test/container.h5.gz",
+        size=len(content),
+        checksum=f"md5:{hashlib.md5(content).hexdigest()}",
+        split="train",
+        cohort="container",
+        expected_count=1,
+        kind="gzip",
+        target="container/container.h5",
+    )
+    _install_file_source(
+        source,
+        tmp_path,
+        keep_archives=False,
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=content)),
+        progress=None,
+        retries=1,
+        retry_delay=0,
+    )
+    assert (tmp_path / "data/container/container.h5").read_bytes() == extracted
+    assert not (tmp_path / "archives").exists()

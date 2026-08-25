@@ -20,10 +20,21 @@ def test_list_and_info() -> None:
     listed = runner.invoke(app, ["list"])
     assert listed.exit_code == 0
     assert "kather100k" in listed.stdout
+    assert "pcam" in listed.stdout
+    assert "spider-colorectal" in listed.stdout
     detailed = runner.invoke(app, ["info", "kather100k"])
     assert detailed.exit_code == 0
     assert "10.5281/zenodo.1214456" in detailed.stdout
     assert "CC-BY-4.0" in detailed.stdout
+
+    pcam = runner.invoke(app, ["info", "pcam"])
+    assert pcam.exit_code == 0
+    assert "CC0-1.0" in pcam.stdout
+
+    spider = runner.invoke(app, ["info", "spider-colorectal"])
+    assert spider.exit_code == 0
+    assert "histai/SPIDER-colorectal" not in spider.stdout
+    assert "git:a180079e24b5" in spider.stdout
 
 
 def test_unknown_dataset() -> None:

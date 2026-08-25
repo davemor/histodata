@@ -90,6 +90,10 @@ def validate_package(
             _add_error(errors, error)
 
     checked_files = _validate_rows(package_dir, table, errors, deep=deep)
+    checked_files += _validate_auxiliary_paths(package_dir, table, errors)
+    if deep and adapter is not None:
+        for error in adapter.deep_validate(package_dir, table):
+            _add_error(errors, error)
     return ValidationReport(
         package=package_dir,
         errors=tuple(errors),
@@ -180,38 +184,94 @@ def _validate_rows(package_dir: Path, table: pa.Table, errors: list[str], *, dee
 
     paths = table["path"].to_pylist()
     sizes = table["byte_size"].to_pylist()
+    media_types = table["media_type"].to_pylist()
+    widths = table["width"].to_pylist() if "width" in table.column_names else [None] * len(ids)
+    heights = table["height"].to_pylist() if "height" in table.column_names else [None] * len(ids)
     checked = 0
-    for item_id, raw_path, declared_size in zip(ids, paths, sizes, strict=True):
+    verified: dict[str, Path | None] = {}
+    for item_id, raw_path, declared_size, media_type, width, height in zip(
+        ids, paths, sizes, media_types, widths, heights, strict=True
+    ):
         if not isinstance(raw_path, str) or not _safe_relative_path(raw_path):
             _add_error(errors, f"Unsafe item path for {item_id}: {raw_path}")
+            continue
+        if raw_path in verified:
+            resolved = verified[raw_path]
+            if resolved is not None and resolved.stat().st_size != declared_size:
+                _add_error(errors, f"File size differs from index for {raw_path}")
             continue
         path = package_dir.joinpath(*PurePosixPath(raw_path).parts)
         try:
             resolved = path.resolve(strict=True)
         except FileNotFoundError:
             _add_error(errors, f"Indexed file does not exist: {raw_path}")
+            verified[raw_path] = None
             continue
         if not resolved.is_relative_to(package_dir):
             _add_error(errors, f"Indexed path resolves outside package: {raw_path}")
             continue
         if not resolved.is_file():
             _add_error(errors, f"Indexed path is not a file: {raw_path}")
+            verified[raw_path] = None
             continue
+        verified[raw_path] = resolved
         checked += 1
         if resolved.stat().st_size != declared_size:
             _add_error(errors, f"File size differs from index for {raw_path}")
-        if deep:
-            _validate_image(resolved, raw_path, errors)
+        if deep and isinstance(media_type, str) and media_type.startswith("image/"):
+            _validate_image(resolved, raw_path, errors, expected=(width, height))
     return checked
 
 
-def _validate_image(path: Path, display_path: str, errors: list[str]) -> None:
+def _validate_auxiliary_paths(package_dir: Path, table: pa.Table, errors: list[str]) -> int:
+    names = {"central_path", "label_path", "metadata_path", "context_paths"}
+    checked: set[str] = set(table["path"].to_pylist()) if "path" in table.column_names else set()
+    count = 0
+    for name in names.intersection(table.column_names):
+        values = table[name].to_pylist()
+        flattened = (
+            (item for value in values for item in value)
+            if name == "context_paths"
+            else iter(values)
+        )
+        for raw_path in flattened:
+            if not isinstance(raw_path, str) or not _safe_relative_path(raw_path):
+                _add_error(errors, f"Unsafe auxiliary path in {name}: {raw_path}")
+                continue
+            if raw_path in checked:
+                continue
+            checked.add(raw_path)
+            path = package_dir.joinpath(*PurePosixPath(raw_path).parts)
+            try:
+                resolved = path.resolve(strict=True)
+            except FileNotFoundError:
+                _add_error(errors, f"Indexed auxiliary file does not exist: {raw_path}")
+                continue
+            if not resolved.is_relative_to(package_dir) or not resolved.is_file():
+                _add_error(errors, f"Indexed auxiliary path is not a package file: {raw_path}")
+                continue
+            count += 1
+    return count
+
+
+def _validate_image(
+    path: Path,
+    display_path: str,
+    errors: list[str],
+    *,
+    expected: tuple[object, object],
+) -> None:
     try:
         with Image.open(path) as image:
             size = image.size
             image.verify()
-        if size != (224, 224):
-            _add_error(errors, f"Expected 224x224 image at {display_path}, found {size}")
+        expected_size = expected if all(isinstance(value, int) for value in expected) else None
+        if expected_size is not None and size != expected_size:
+            _add_error(
+                errors,
+                f"Expected {expected_size[0]}x{expected_size[1]} image at {display_path}, "
+                f"found {size}",
+            )
     except (OSError, ValueError) as exc:
         _add_error(errors, f"Cannot verify image {display_path}: {exc}")
 

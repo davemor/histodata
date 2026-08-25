@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from histodata.config import ConfigurationError, resolve_datasets_root
+from histodata.config import ConfigurationError, resolve_datasets_root, resolve_hf_token
 
 
 def test_explicit_output_has_highest_precedence(tmp_path: Path) -> None:
@@ -54,3 +54,18 @@ def test_rejects_empty_configured_value(tmp_path: Path, source: str) -> None:
 def test_missing_configuration_has_actionable_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigurationError, match="Pass --output ROOT"):
         resolve_datasets_root(None, cwd=tmp_path, environ={})
+
+
+def test_hf_token_environment_precedes_dotenv(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("HF_TOKEN=dotenv-token\n")
+    assert resolve_hf_token(cwd=tmp_path, environ={"HF_TOKEN": "shell-token"}) == "shell-token"
+
+
+def test_hf_token_loads_from_dotenv(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("HF_TOKEN=dotenv-token\n")
+    assert resolve_hf_token(cwd=tmp_path, environ={}) == "dotenv-token"
+
+
+def test_hf_token_error_is_actionable(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError, match="accepting the dataset's access conditions"):
+        resolve_hf_token(cwd=tmp_path, environ={})

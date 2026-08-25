@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 import pyarrow as pa
 
 
 @dataclass(frozen=True)
 class DatasetSource:
-    """A pinned externally hosted archive belonging to a dataset."""
+    """A pinned external source belonging to a dataset."""
 
     filename: str
     url: str
@@ -20,6 +20,11 @@ class DatasetSource:
     split: str
     cohort: str
     expected_count: int
+    kind: Literal["zip", "gzip", "file", "huggingface-split-tar"] = "zip"
+    target: str | None = None
+    repository: str | None = None
+    revision: str | None = None
+    part_count: int | None = None
 
     @property
     def checksum_algorithm(self) -> str:
@@ -61,3 +66,5 @@ class DatasetAdapter(Protocol):
     def manifest_dataset_metadata(self) -> dict[str, object]: ...
 
     def validate_table(self, table: pa.Table) -> list[str]: ...
+
+    def deep_validate(self, package_dir: Path, table: pa.Table) -> list[str]: ...

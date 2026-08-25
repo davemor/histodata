@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
-from histodata.adapters import Kather100KAdapter
+from histodata.adapters import (
+    Kather100KAdapter,
+    Kather100KNonNormAdapter,
+    PCamAdapter,
+    SpiderBreastAdapter,
+    SpiderColorectalAdapter,
+    SpiderSkinAdapter,
+    SpiderThoraxAdapter,
+)
 from histodata.models import DatasetAdapter
 
-_ADAPTERS: dict[str, DatasetAdapter] = {"kather100k": Kather100KAdapter()}
+_ADAPTERS: dict[str, DatasetAdapter] = {
+    "kather100k": Kather100KAdapter(),
+    "kather100k-nonorm": Kather100KNonNormAdapter(),
+    "pcam": PCamAdapter(),
+    "spider-breast": SpiderBreastAdapter(),
+    "spider-colorectal": SpiderColorectalAdapter(),
+    "spider-skin": SpiderSkinAdapter(),
+    "spider-thorax": SpiderThoraxAdapter(),
+}
 
 
 class UnknownDatasetError(KeyError):

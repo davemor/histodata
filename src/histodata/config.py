@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 DATASETS_ROOT_ENV = "HISTODATA_DATASETS_ROOT"
+HF_TOKEN_ENV = "HF_TOKEN"
 
 
 class ConfigurationError(ValueError):
@@ -60,3 +61,28 @@ def _normalise_path(path: Path, cwd: Path) -> Path:
     if not expanded.is_absolute():
         expanded = cwd / expanded
     return expanded.resolve()
+
+
+def resolve_hf_token(*, cwd: Path | None = None, environ: Mapping[str, str] | None = None) -> str:
+    """Resolve a Hugging Face token from the process environment or ``./.env``."""
+    working_directory = (cwd or Path.cwd()).resolve()
+    environment = os.environ if environ is None else environ
+
+    if HF_TOKEN_ENV in environment:
+        value = environment[HF_TOKEN_ENV]
+        if not value.strip():
+            raise ConfigurationError(f"{HF_TOKEN_ENV} is set but empty")
+        return value.strip()
+
+    dotenv_path = working_directory / ".env"
+    if dotenv_path.is_file():
+        value = dotenv_values(dotenv_path).get(HF_TOKEN_ENV)
+        if value is not None:
+            if not value.strip():
+                raise ConfigurationError(f"{HF_TOKEN_ENV} is present in {dotenv_path} but empty")
+            return value.strip()
+
+    raise ConfigurationError(
+        f"This dataset requires Hugging Face access. Set {HF_TOKEN_ENV} in the environment "
+        "or in ./.env after accepting the dataset's access conditions on Hugging Face."
+    )

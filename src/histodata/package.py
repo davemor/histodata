@@ -34,6 +34,16 @@ COLUMN_DESCRIPTIONS = {
     "stain": "Histological stain.",
     "color_normalized": "Whether color normalization was applied by the publisher.",
     "byte_size": "Extracted file size in bytes.",
+    "item_index": "Zero-based row offset within a container file.",
+    "label_path": "Relative path to the publisher's label container.",
+    "metadata_path": "Relative path to the publisher's item metadata.",
+    "slide_id": "Publisher-provided source whole-slide image identifier.",
+    "coord_x": "Patch x-coordinate in the source whole-slide image.",
+    "coord_y": "Patch y-coordinate in the source whole-slide image.",
+    "tumor_patch": "Whether any tumor occurs within the full source patch.",
+    "central_path": "Relative path to the labelled central patch.",
+    "context_paths": "Relative paths to the surrounding context patches.",
+    "organ": "Organ represented by the patch.",
 }
 
 
