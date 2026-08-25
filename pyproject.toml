@@ -1,0 +1,71 @@
+[project]
+name = "histodata"
+version = "0.1.0"
+description = "Download, standardize, and validate externally hosted histopathology datasets."
+readme = "README.md"
+requires-python = ">=3.14"
+authors = [
+    { name = "David Morrison", email = "dm236@st-andrews.ac.uk" },
+]
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+    "httpx>=0.28",
+    "pillow>=12",
+    "pyarrow>=23",
+    "python-dotenv>=1.2",
+    "typer>=0.26",
+]
+
+[project.urls]
+Repository = "https://github.com/davemor/histodata"
+
+[project.scripts]
+"histodata" = "histodata.__main__:app"
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39",
+    "pytest>=9",
+    "pytest-cov>=7",
+    "ruff>=0.16",
+    "prek>=0.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.14"
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["integration: requires access to the full externally hosted dataset"]
+
+[tool.coverage.run]
+branch = true
+source = ["histodata"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = ["if __name__ == .__main__.:"]
