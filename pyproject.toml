@@ -31,7 +31,7 @@ dev = [
     "pytest>=9",
     "pytest-cov>=7",
     "ruff>=0.16",
-    "prek>=0.4",
+    "prek>=0.5.0",
 ]
 
 [build-system]
