@@ -16,7 +16,7 @@ dependencies = [
     "pillow>=12",
     "pyarrow>=23",
     "python-dotenv>=1.2",
-    "typer>=0.26",
+    "typer>=0.27.2",
 ]
 
 [project.urls]
