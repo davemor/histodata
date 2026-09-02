@@ -45,13 +45,42 @@ def cli(
 @app.command("list")
 def list_datasets() -> None:
     """List available built-in dataset adapters."""
-    typer.echo("ID                 KIND   VERSION       DESCRIPTION")
+    headers = ("NAME", "KIND", "VERSION", "TISSUE", "SIZE", "RES", "TRAIN", "TEST", "VALID")
+    rows: list[tuple[str, ...]] = []
+    descriptions: list[str] = []
     for adapter in available_adapters():
         metadata = adapter.metadata
-        typer.echo(
-            f"{metadata.identifier:<18} {metadata.kind:<6} {metadata.version:<13} "
-            f"{metadata.description}"
+        rows.append(
+            (
+                metadata.identifier,
+                metadata.kind,
+                metadata.version,
+                metadata.tissue,
+                f"{metadata.image_size[0]}x{metadata.image_size[1]}",
+                f"{metadata.resolution_mpp:g} mpp",
+                _format_count(metadata.train_count),
+                _format_count(metadata.test_count),
+                _format_count(metadata.valid_count),
+            )
         )
+        descriptions.append(metadata.description)
+
+    widths = [
+        max(len(header), *(len(row[index]) for row in rows)) for index, header in enumerate(headers)
+    ]
+    typer.echo(
+        "  ".join(header.ljust(widths[index]) for index, header in enumerate(headers))
+        + "  DESCRIPTION"
+    )
+    for row, description in zip(rows, descriptions, strict=True):
+        typer.echo(
+            "  ".join(value.ljust(widths[index]) for index, value in enumerate(row))
+            + f"  {description}"
+        )
+
+
+def _format_count(count: int | None) -> str:
+    return "-" if count is None else f"{count:,}"
 
 
 @app.command()

@@ -71,10 +71,13 @@ class PCamAdapter:
         title="PatchCamelyon (PCam)",
         version="1.0",
         kind="patch",
-        description=(
-            "327,680 96x96 H&E lymph-node patches for binary metastasis classification, "
-            "stored in the publisher's HDF5 containers."
-        ),
+        tissue="lymph node",
+        image_size=(96, 96),
+        resolution_mpp=0.972,
+        train_count=SPLIT_COUNTS["train"],
+        test_count=SPLIT_COUNTS["test"],
+        valid_count=SPLIT_COUNTS["validation"],
+        description="H&E lymph-node patches for metastasis classification.",
         homepage="https://github.com/basveeling/pcam",
         doi="10.1007/978-3-030-00934-2_24",
         license_id="CC0-1.0",

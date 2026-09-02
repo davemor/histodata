@@ -55,6 +55,8 @@ class SpiderAdapter:
     revision: ClassVar[str]
     archive_size: ClassVar[int]
     part_count: ClassVar[int]
+    train_count: ClassVar[int | None] = None
+    test_count: ClassVar[int | None] = None
 
     def __init__(self) -> None:
         identifier = f"spider-{self.organ}"
@@ -64,10 +66,13 @@ class SpiderAdapter:
             title=f"SPIDER-{self.organ.capitalize()}",
             version=self.revision[:12],
             kind="patch",
-            description=(
-                f"SPIDER {self.organ} dataset: expert-labelled 224x224 central H&E patches "
-                "with 24 surrounding context patches at 20X."
-            ),
+            tissue=self.organ,
+            image_size=(224, 224),
+            resolution_mpp=0.5,
+            train_count=self.train_count,
+            test_count=self.test_count,
+            valid_count=0,
+            description=f"Expert-labelled H&E {self.organ} patches with spatial context.",
             homepage=f"https://huggingface.co/datasets/{repository}",
             doi="10.48550/arXiv.2503.02876",
             license_id="CC-BY-NC-4.0",
@@ -242,6 +247,8 @@ class SpiderAdapter:
 class SpiderSkinAdapter(SpiderAdapter):
     organ = "skin"
     expected_count = 159_854
+    train_count = 131_164
+    test_count = 28_690
     revision = "7ab1badb5a32a7b6de809a37561e42968afd4b51"
     archive_size = 241_591_910_400
     part_count = 45
@@ -276,6 +283,8 @@ class SpiderSkinAdapter(SpiderAdapter):
 class SpiderColorectalAdapter(SpiderAdapter):
     organ = "colorectal"
     expected_count = 77_182
+    train_count = 63_989
+    test_count = 13_193
     revision = "a180079e24b53bb0900038eee855c7f50b768edc"
     archive_size = 88_802_785_280
     part_count = 17
@@ -299,6 +308,8 @@ class SpiderColorectalAdapter(SpiderAdapter):
 class SpiderThoraxAdapter(SpiderAdapter):
     organ = "thorax"
     expected_count = 78_307
+    train_count = 63_319
+    test_count = 14_988
     revision = "0583a651de34e88293d6924a0081fc2a41d6c1ab"
     archive_size = 56_372_961_280
     part_count = 11
@@ -323,6 +334,8 @@ class SpiderThoraxAdapter(SpiderAdapter):
 class SpiderBreastAdapter(SpiderAdapter):
     organ = "breast"
     expected_count = 92_892
+    train_count = 80_858
+    test_count = 12_034
     revision = "cd697eb93ff4490eee721d60d24c670cf3db6b7e"
     archive_size = 86_138_654_720
     part_count = 17

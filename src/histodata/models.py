@@ -43,6 +43,12 @@ class DatasetMetadata:
     title: str
     version: str
     kind: str
+    tissue: str
+    image_size: tuple[int, int]
+    resolution_mpp: float
+    train_count: int | None
+    test_count: int | None
+    valid_count: int | None
     description: str
     homepage: str
     doi: str

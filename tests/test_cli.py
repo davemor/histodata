@@ -19,8 +19,32 @@ def test_version() -> None:
 def test_list_and_info() -> None:
     listed = runner.invoke(app, ["list"])
     assert listed.exit_code == 0
+    assert listed.stdout.splitlines()[0].split() == [
+        "NAME",
+        "KIND",
+        "VERSION",
+        "TISSUE",
+        "SIZE",
+        "RES",
+        "TRAIN",
+        "TEST",
+        "VALID",
+        "DESCRIPTION",
+    ]
     assert "kather100k" in listed.stdout
+    assert "224x224" in listed.stdout
+    assert "0.5 mpp" in listed.stdout
+    assert "100,000" in listed.stdout
+    assert "7,180" in listed.stdout
     assert "pcam" in listed.stdout
+    assert "0.972 mpp" in listed.stdout
+    assert "262,144" in listed.stdout
+    assert "32,768" in listed.stdout
+    breast_row = next(
+        line for line in listed.stdout.splitlines() if line.startswith("spider-breast")
+    )
+    assert "80,858" in breast_row
+    assert "12,034" in breast_row
     assert "spider-colorectal" in listed.stdout
     detailed = runner.invoke(app, ["info", "kather100k"])
     assert detailed.exit_code == 0

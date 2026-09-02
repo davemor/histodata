@@ -53,10 +53,13 @@ class Kather100KAdapter:
         title="100,000 histological images of human colorectal cancer and healthy tissue",
         version="v0.1",
         kind="patch",
-        description=(
-            "Color-normalized 224x224 H&E colorectal tissue patches: the "
-            "NCT-CRC-HE-100K training cohort and CRC-VAL-HE-7K validation cohort."
-        ),
+        tissue="colorectal",
+        image_size=(224, 224),
+        resolution_mpp=0.5,
+        train_count=100_000,
+        test_count=0,
+        valid_count=7_180,
+        description="Color-normalized H&E colorectal tissue patches.",
         homepage=ZENODO_RECORD,
         doi="10.5281/zenodo.1214456",
         license_id="CC-BY-4.0",
@@ -228,10 +231,8 @@ class Kather100KNonNormAdapter(Kather100KAdapter):
     metadata = replace(
         Kather100KAdapter.metadata,
         identifier="kather100k-nonorm",
-        description=(
-            "Non-color-normalized 224x224 H&E colorectal tissue patches from "
-            "the NCT-CRC-HE-100K-NONORM training cohort."
-        ),
+        valid_count=0,
+        description="Non-color-normalized H&E colorectal tissue patches.",
     )
     sources = (
         DatasetSource(
